@@ -15,23 +15,16 @@ button.active{background:#2563eb;border-color:#60a5fa}button:disabled{opacity:.4
 </style>
 </head>
 <body><div id="app">
-<div class="top">
-<label class="filebtn" for="file">DXF Aç</label><input id="file" type="file" accept=".dxf">
-<button id="fit">Sığdır</button><button id="zoomout">−</button><button id="zoomin">+</button>
-<button id="select" class="active">Seç</button><button id="line">Çizgi</button><button id="move">Taşı</button>
-<button id="del">Sil</button><button id="undo">Geri</button><button id="redo">İleri</button>
-<button id="save">DXF Kaydet</button>
-</div>
-<div id="status">DXF dosyası açın. İki parmakla yakınlaştırıp kaydırabilirsiniz.</div>
+<div class="top" id="tabs"><button data-tab="0">Dosya</button><button data-tab="1">Çizim</button><button data-tab="2">Düzenleme</button><button data-tab="3">Ölçülendirme</button><button data-tab="4">Görünüm</button></div><div class="top tools" data-panel="0" style="display:flex"><button id="new">Yeni DXF</button><button id="open">DXF Aç</button><button id="save">Kaydet</button><button id="saveas">Farklı kaydet</button><button id="clear">Temizle</button></div><div class="top tools" data-panel="1" style="display:none"><button id="line">Çizgi</button><button id="rect">Dikdörtgen</button><button id="circle">Daire</button><button id="arc">Yay</button><button id="poly">Polyline</button><button id="finish">Bitir</button><button id="exact">Koordinat</button><button id="length">Ölçülü çizim</button></div><div class="top tools" data-panel="2" style="display:none"><button id="select">Seç</button><button id="multi">Çoklu seç</button><button id="del">Sil</button><button id="trim">Kırp</button><button id="extend">Uzat</button><button id="short">Kısalt</button><button id="move">Taşı</button><button id="copy">Kopyala</button><button id="undo">Geri</button><button id="redo">İleri</button></div><div class="top tools" data-panel="3" style="display:none"><button id="measure">Mesafe</button><button id="dim">Doğrusal</button><button id="dimx">Yatay</button><button id="dimy">Dikey</button><button id="angle">Açı</button><button id="diam">Çap</button><button id="rad">Yarıçap</button></div><div class="top tools" data-panel="4" style="display:none"><button id="fit">Sığdır</button><button id="zoomout">−</button><button id="zoomin">+</button><button id="pan">Pan</button><button id="grid">Izgara</button><button id="snap">Snap</button><button id="ortho">Ortho</button></div><input id="file" type="file" accept=".dxf"><div id="status">DXF dosyası açın. İki parmakla yakınlaştırıp kaydırabilirsiniz.</div>
 <div id="stage"><canvas id="c"></canvas></div>
-<div class="bottom"><span>Mini CAD v2 • DXF ASCII</span><span id="coords">X: —  Y: —</span></div>
+<div class="bottom"><span>Mini CAD v4 • DXF ASCII</span><span id="coords">X: —  Y: —</span></div>
 </div>
 <script>
 (()=> {
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),stage=document.getElementById('stage');
 const $=id=>document.getElementById(id); let W=1,H=1,scale=1,ox=0,oy=0;
 let entities=[],original=[],rawLines=[],fileName='drawing.dxf',mode='select',selected=-1,drag=null,lineStart=null;
-let history=[],future=[],pinch=null,dirty=false;
+let multi=new Set(), gridOn=true,snapOn=true,orthoOn=false, pending=[]; let boundary=-1, gesture=false; let history=[],future=[],pinch=null,dirty=false;
 const status=t=>$('status').textContent=t;
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function pairsFrom(text){let a=text.replace(/\r/g,'').split('\n');if(a[a.length-1]==='')a.pop();let p=[];for(let i=0;i+1<a.length;i+=2){let code=Number(a[i].trim());if(Number.isFinite(code))p.push({c:code,v:a[i+1]});}return p}
@@ -41,8 +34,8 @@ function parse(text){
  const vals=c=>rec.filter(x=>x.c===c).map(x=>Number(x.v));
  if(type==='LINE'){e.pts=[{x:vals(10)[0],y:vals(20)[0]},{x:vals(11)[0],y:vals(21)[0]}];}
  else if(type==='CIRCLE'||type==='ARC'){e.center={x:vals(10)[0],y:vals(20)[0]};e.r=vals(40)[0];if(type==='ARC'){e.start=vals(50)[0];e.end=vals(51)[0];}}
- else if(type==='LWPOLYLINE'){e.vertices=[];for(let i=0;i<rec.length;i++){if(rec[i].c===10){let y=rec.slice(i+1).find(x=>x.c===20);let b=rec.slice(i+1).find(x=>x.c===42);e.vertices.push({x:Number(rec[i].v),y:y?Number(y.v):0,bulge:b?Number(b.v):0});}}e.closed=(Number((rec.find(x=>x.c===70)||{v:0}).v)&1)!==0;}
- else if(type==='POINT'){e.center={x:vals(10)[0],y:vals(20)[0]};}
+ else if(type==='LWPOLYLINE'){e.vertices=[];for(let i=0;i<rec.length;i++){if(rec[i].c===10){let end=rec.findIndex((x,j)=>j>i&&x.c===10);let chunk=rec.slice(i+1,end<0?rec.length:end);let y=chunk.find(x=>x.c===20);let b=chunk.find(x=>x.c===42);e.vertices.push({x:Number(rec[i].v),y:y?Number(y.v):0,bulge:b?Number(b.v):0});}}e.closed=(Number((rec.find(x=>x.c===70)||{v:0}).v)&1)!==0;}
+ else if(type==='TEXT'){e.center={x:vals(10)[0],y:vals(20)[0]};e.height=vals(40)[0]||2.5;e.text=(rec.find(x=>x.c===1)||{v:''}).v;}else if(type==='POINT'){e.center={x:vals(10)[0],y:vals(20)[0]};}
  else e.unsupported=true;
  if(['LINE','CIRCLE','ARC','LWPOLYLINE','POINT'].includes(type))e.valid=true;
  entities.push(e);rec=[];
@@ -58,9 +51,9 @@ function parse(text){
    continue;
  }
  if(q.c===2&&String(q.v).trim().toUpperCase()==='ENTITIES')inEnt=true;
- if(inEnt)rec.push(q);
+ if(inEnt&&rec.length)rec.push(q);
  }
- flush(); original=clone(entities); selected=-1;history=[];future=[];dirty=false;fit();
+ flush(); original=clone(entities); selected=-1;multi.clear();history=[];future=[];dirty=false;fit();
  status(`${fileName} • ${entities.length} öğe • Desteklenen: LINE, CIRCLE, ARC, LWPOLYLINE, POINT. Diğer öğeler korunur.`);
 }
 function resize(){let r=stage.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);draw()}
@@ -70,44 +63,57 @@ function screen(p){return {x:ox+p.x*scale,y:oy-p.y*scale}}
 function fit(){let pts=[];for(let e of entities){if(e.deleted)continue;if(e.pts)pts.push(...e.pts);if(e.center){let r=e.r||0;pts.push({x:e.center.x-r,y:e.center.y-r},{x:e.center.x+r,y:e.center.y+r})}if(e.vertices)pts.push(...e.vertices)}
 if(!pts.length){scale=1;ox=W/2;oy=H/2;draw();return}
 let minx=Math.min(...pts.map(p=>p.x)),maxx=Math.max(...pts.map(p=>p.x)),miny=Math.min(...pts.map(p=>p.y)),maxy=Math.max(...pts.map(p=>p.y));let dx=maxx-minx||1,dy=maxy-miny||1;scale=Math.min((W-60)/dx,(H-60)/dy);scale=Math.max(.00001,Math.min(scale,10000));ox=W/2-(minx+maxx)/2*scale;oy=H/2+(miny+maxy)/2*scale;draw()}
-function bulgePoints(a,b,bulge){if(!bulge)return [a,b];let theta=4*Math.atan(bulge),dx=b.x-a.x,dy=b.y-a.y,ch=Math.hypot(dx,dy),r=ch/(2*Math.sin(Math.abs(theta)/2));let mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},h=ch/(2*Math.tan(theta/2));let nx=-dy/ch,ny=dx/ch,c={x:mid.x+nx*h,y:mid.y+ny*h};let start=Math.atan2(a.y-c.y,a.x-c.x),n=Math.max(8,Math.ceil(Math.abs(theta)*Math.max(r*scale,1)/7)),out=[];for(let i=0;i<=n;i++){let t=start+theta*i/n;out.push({x:c.x+r*Math.cos(t),y:c.y+r*Math.sin(t)})}return out}
-function arcPts(e){let a=e.start*Math.PI/180,b=e.end*Math.PI/180;while(b<a)b+=Math.PI*2;let n=Math.max(12,Math.ceil((b-a)*Math.max(e.r*scale,1)/6));let p=[];for(let i=0;i<=n;i++){let t=a+(b-a)*i/n;p.push({x:e.center.x+e.r*Math.cos(t),y:e.center.y+e.r*Math.sin(t)})}return p}
+function bulgePoints(a,b,bulge){if(!bulge)return [a,b];let theta=4*Math.atan(bulge),dx=b.x-a.x,dy=b.y-a.y,ch=Math.hypot(dx,dy),r=ch/(2*Math.sin(Math.abs(theta)/2));let mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},h=ch/(2*Math.tan(theta/2));let nx=-dy/ch,ny=dx/ch,c={x:mid.x+nx*h,y:mid.y+ny*h};let start=Math.atan2(a.y-c.y,a.x-c.x),n=Math.min(2048,Math.max(8,Math.ceil(Math.abs(theta)*Math.max(r*scale,1)/7))),out=[];for(let i=0;i<=n;i++){let t=start+theta*i/n;out.push({x:c.x+r*Math.cos(t),y:c.y+r*Math.sin(t)})}return out}
+function arcPts(e){let a=e.start*Math.PI/180,b=e.end*Math.PI/180;while(b<a)b+=Math.PI*2;let n=Math.min(2048,Math.max(12,Math.ceil((b-a)*Math.max(e.r*scale,1)/6)));let p=[];for(let i=0;i<=n;i++){let t=a+(b-a)*i/n;p.push({x:e.center.x+e.r*Math.cos(t),y:e.center.y+e.r*Math.sin(t)})}return p}
 function path(points,close=false){if(!points.length)return;let s=screen(points[0]);ctx.beginPath();ctx.moveTo(s.x,s.y);for(let i=1;i<points.length;i++){s=screen(points[i]);ctx.lineTo(s.x,s.y)}if(close)ctx.closePath();ctx.stroke()}
 function draw(){if(!ctx)return;ctx.clearRect(0,0,W,H);ctx.fillStyle='#0b1220';ctx.fillRect(0,0,W,H);
  // grid
  let step=gridStep();let left=world(0,H).x,right=world(W,0).x,bottom=world(0,H).y,top=world(0,0).y;
- ctx.lineWidth=1;ctx.strokeStyle='#172338';ctx.beginPath();for(let x=Math.ceil(left/step)*step;x<right;x+=step){let s=screen({x,y:0});ctx.moveTo(s.x,0);ctx.lineTo(s.x,H)}for(let y=Math.ceil(bottom/step)*step;y<top;y+=step){let s=screen({x:0,y});ctx.moveTo(0,s.y);ctx.lineTo(W,s.y)}ctx.stroke();
- entities.forEach((e,i)=>{if(e.deleted)return;ctx.strokeStyle=i===selected?'#f59e0b':'#d1d5db';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=i===selected?2.8:1.5;
- if(e.type==='LINE')path(e.pts);else if(e.type==='CIRCLE'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,e.r*scale,0,Math.PI*2);ctx.stroke()}else if(e.type==='ARC')path(arcPts(e));else if(e.type==='LWPOLYLINE'){let pts=[];for(let j=0;j<e.vertices.length-(e.closed?0:1);j++){let a=e.vertices[j],b=e.vertices[(j+1)%e.vertices.length];let seg=bulgePoints(a,b,a.bulge);pts.push(...(j?seg.slice(1):seg))}path(pts,e.closed)}else if(e.type==='POINT'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,3,0,Math.PI*2);ctx.fill()}
+ ctx.lineWidth=1;ctx.strokeStyle='#172338';ctx.beginPath();for(let x=Math.ceil(left/step)*step;x<right;x+=step){let s=screen({x,y:0});ctx.moveTo(s.x,0);ctx.lineTo(s.x,H)}for(let y=Math.ceil(bottom/step)*step;y<top;y+=step){let s=screen({x:0,y});ctx.moveTo(0,s.y);ctx.lineTo(W,s.y)}if(gridOn)ctx.stroke();
+ entities.forEach((e,i)=>{if(e.deleted)return;ctx.strokeStyle=(i===selected||multi.has(i))?'#f59e0b':'#d1d5db';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=(i===selected||multi.has(i))?2.8:1.5;
+ if(e.type==='LINE')path(e.pts);else if(e.type==='CIRCLE'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,e.r*scale,0,Math.PI*2);ctx.stroke()}else if(e.type==='ARC')path(arcPts(e));else if(e.type==='LWPOLYLINE'){let pts=[];for(let j=0;j<e.vertices.length-(e.closed?0:1);j++){let a=e.vertices[j],b=e.vertices[(j+1)%e.vertices.length];let seg=bulgePoints(a,b,a.bulge);pts.push(...(j?seg.slice(1):seg))}path(pts,e.closed)}else if(e.type==='TEXT'){let s=screen(e.center);ctx.font=`${Math.max(8,e.height*scale)}px sans-serif`;ctx.fillText(e.text,s.x,s.y)}else if(e.type==='POINT'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,3,0,Math.PI*2);ctx.fill()}
  });
+ if(pending.length>1&&mode==='poly'){ctx.strokeStyle='#22c55e';path(pending)}
  if(lineStart){let s=screen(lineStart);ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(s.x,s.y,5,0,Math.PI*2);ctx.fill()}
 }
 function gridStep(){let raw=80/scale,p=Math.pow(10,Math.floor(Math.log10(raw)));for(let m of [1,2,5,10])if(m*p>=raw)return m*p;return 10*p}
 function saveHist(){history.push(clone(entities));if(history.length>60)history.shift();future=[];dirty=true}
-function nearest(p){let best=-1,bd=12;entities.forEach((e,i)=>{if(e.deleted)return;let candidates=[];if(e.pts)candidates=e.pts;if(e.center)candidates=[e.center];if(e.vertices)candidates=e.vertices;for(let q of candidates){let s=screen(q),d=Math.hypot(s.x-p.x,s.y-p.y);if(d<bd){bd=d;best=i}}if(e.r){let s=screen(e.center),d=Math.abs(Math.hypot(s.x-p.x,s.y-p.y)-e.r*scale);if(d<bd){bd=d;best=i}}});return best}
+function segments(e){if(e.pts)return [e.pts];if(e.type==='ARC')return [arcPts(e)];if(e.vertices)return e.vertices.slice(0,e.closed?e.vertices.length:-1).map((v,i)=>bulgePoints(v,e.vertices[(i+1)%e.vertices.length],v.bulge));return []}
+function distSeg(p,a,b){let dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)}
+function nearest(p){let best=-1,bd=16;entities.forEach((e,i)=>{if(e.deleted)return;let d=Infinity;for(let seg of segments(e))for(let j=1;j<seg.length;j++)d=Math.min(d,distSeg(p,screen(seg[j-1]),screen(seg[j])));if(e.type==='CIRCLE'){let c=screen(e.center);d=Math.abs(Math.hypot(p.x-c.x,p.y-c.y)-e.r*scale)}if(e.type==='POINT'||e.type==='TEXT'){let c=screen(e.center);d=Math.hypot(p.x-c.x,p.y-c.y)}if(d<bd){bd=d;best=i}});return best}
+function snap(p){let q=world(p.x,p.y),best=12;if(!snapOn)return q;for(let e of entities){if(e.deleted)continue;for(let v of [...(e.pts||e.vertices||[]),...(e.center?[e.center]:[]),...(e.type==='LINE'?[{x:(e.pts[0].x+e.pts[1].x)/2,y:(e.pts[0].y+e.pts[1].y)/2}]:[]),...(e.r?[0,90,180,270].filter(a=>e.type==='CIRCLE'||((a-e.start+360)%360)<=((e.end-e.start+360)%360)).map(a=>({x:e.center.x+e.r*Math.cos(a*Math.PI/180),y:e.center.y+e.r*Math.sin(a*Math.PI/180)})):[])]){let c=screen(v),d=Math.hypot(c.x-p.x,c.y-p.y);if(d<best){best=d;q={x:v.x,y:v.y}}}}return q}
+function addLine(a,b,layer='0'){entities.push({type:'LINE',pts:[a,b],layer,added:true,groups:[]})}
+function intersect(a,b,c,d){let x=b.x-a.x,y=b.y-a.y,u=d.x-c.x,v=d.y-c.y,den=x*v-y*u;if(Math.abs(den)<1e-12)return null;let t=((c.x-a.x)*v-(c.y-a.y)*u)/den,k=((c.x-a.x)*y-(c.y-a.y)*x)/den;return {t,k,p:{x:a.x+t*x,y:a.y+t*y}}}
+function tap(p){let q=snap(p),i=nearest(p);if(extraTap(q,i))return;if(orthoOn&&lineStart&&mode==='line')q=orth(lineStart,q);if(['trim','extend'].includes(mode)){if(boundary<0){if(i<0||entities[i].type!=='LINE')return status('Önce sınır olarak bir LINE seçin.');boundary=i;selected=i;status('Şimdi düzenlenecek çizginin ilgili ucuna dokunun.');return draw()}if(i<0||i===boundary||entities[i].type!=='LINE')return;let e=entities[i],f=entities[boundary],a=e.pts[0],b=e.pts[1],hit=intersect(a,b,...f.pts);if(!hit||hit.k<0||hit.k>1||(mode==='trim'?(hit.t<=0||hit.t>=1):(hit.t>=0&&hit.t<=1)))return status('Uygun kesişim bulunamadı.');let end=mode==='extend'?(hit.t<0?0:1):(Math.hypot(q.x-a.x,q.y-a.y)<Math.hypot(q.x-b.x,q.y-b.y)?0:1);saveHist();e.pts[end]=hit.p;selected=i;boundary=-1;status('İşlem tamamlandı. Yeni sınır seçin.');return draw()}
+if(!lineStart){lineStart=q;status('İkinci noktaya dokunun.');return draw()}let a=lineStart,b=q;lineStart=null;let d=Math.hypot(b.x-a.x,b.y-a.y);if(d<1e-9)return draw();if(mode==='measure'){status(`Mesafe: ${d.toFixed(3)} mm | X: ${Math.abs(b.x-a.x).toFixed(3)} | Y: ${Math.abs(b.y-a.y).toFixed(3)}`);return draw()}saveHist();if(mode==='line')addLine(a,b);if(mode==='rect'){let c={x:b.x,y:a.y},f={x:a.x,y:b.y};addLine(a,c);addLine(c,b);addLine(b,f);addLine(f,a)}if(mode==='circle')entities.push({type:'CIRCLE',center:a,r:d,layer:'0',added:true});if(mode==='dim'){let h=12/scale,n={x:-(b.y-a.y)/d*h*2,y:(b.x-a.x)/d*h*2},c={x:a.x+n.x,y:a.y+n.y},f={x:b.x+n.x,y:b.y+n.y};addLine(a,c,'DIM');addLine(b,f,'DIM');addLine(c,f,'DIM');entities.push({type:'TEXT',center:{x:(c.x+f.x)/2,y:(c.y+f.y)/2},height:h,text:d.toFixed(2)+' mm',layer:'DIM',added:true})}status('İşlem tamamlandı.');draw()}
 function pointerPos(ev){let r=canvas.getBoundingClientRect();return {x:ev.clientX-r.left,y:ev.clientY-r.top}}
 let pointers=new Map();
 canvas.addEventListener('pointerdown',ev=>{canvas.setPointerCapture(ev.pointerId);let p=pointerPos(ev);pointers.set(ev.pointerId,p);
- if(pointers.size===2){let a=[...pointers.values()];pinch={dist:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),scale,mid:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2},world:world((a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2)};drag=null;return}
- if(mode==='line'){let q=world(p.x,p.y);if(!lineStart){lineStart=q;status('Başlangıç noktası seçildi. Bitiş noktasına dokunun.')}else{saveHist();entities.push({type:'LINE',pts:[lineStart,q],layer:'0',valid:true,added:true,groups:[]});lineStart=null;status('Çizgi eklendi.')}draw();return}
+ if(pointers.size===2){gesture=true;let a=[...pointers.values()];pinch={dist:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),scale,mid:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2},world:world((a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2)};drag=null;return}
+ if(['line','rect','circle','measure','dim','trim','extend','multi','arc','poly','short','copy','dimx','dimy','angle','diam','rad'].includes(mode)){drag={tap:true,p0:p};return}
  if(mode==='select'||mode==='move'){let idx=nearest(p);selected=idx;if(idx>=0){drag={p0:p,world0:world(p.x,p.y),before:clone(entities[idx]),idx,moved:false}}draw();return}
  drag={p0:p,ox,oy,pan:true};
 });
 canvas.addEventListener('pointermove',ev=>{let p=pointerPos(ev);if(pointers.has(ev.pointerId))pointers.set(ev.pointerId,p);$('coords').textContent=`X: ${world(p.x,p.y).x.toFixed(2)}  Y: ${world(p.x,p.y).y.toFixed(2)}`;
  if(pinch&&pointers.size>=2){let a=[...pointers.values()],mid={x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2},dist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);scale=Math.max(.000001,Math.min(1e7,pinch.scale*dist/pinch.dist));ox=mid.x-pinch.world.x*scale;oy=mid.y+pinch.world.y*scale;draw();return}
- if(!drag)return;
+ if(!drag||drag.tap)return;
  if(drag.pan){ox=drag.ox+(p.x-drag.p0.x);oy=drag.oy+(p.y-drag.p0.y);draw();return}
- if(drag.idx>=0&&mode==='move'&&drag.moved){/* move preview already */}else if(drag.idx>=0&&mode==='move'){let dx=(p.x-drag.p0.x)/scale,dy=-(p.y-drag.p0.y)/scale;if(Math.hypot(dx,dy)>2/scale){if(!drag.moved)saveHist();drag.moved=true;let e=entities[drag.idx],b=drag.before;if(e.pts)e.pts=b.pts.map(q=>({x:q.x+dx,y:q.y+dy}));if(e.center)e.center={x:b.center.x+dx,y:b.center.y+dy};if(e.vertices)e.vertices=b.vertices.map(q=>({...q,x:q.x+dx,y:q.y+dy}));draw()}}
+ if(drag.idx>=0&&mode==='move'){let dx=(p.x-drag.p0.x)/scale,dy=-(p.y-drag.p0.y)/scale;if(Math.hypot(dx,dy)>2/scale){if(!drag.moved)saveHist();drag.moved=true;let e=entities[drag.idx],b=drag.before;if(e.pts)e.pts=b.pts.map(q=>({x:q.x+dx,y:q.y+dy}));if(e.center)e.center={x:b.center.x+dx,y:b.center.y+dy};if(e.vertices)e.vertices=b.vertices.map(q=>({...q,x:q.x+dx,y:q.y+dy}));draw()}}
 });
-canvas.addEventListener('pointerup',ev=>{pointers.delete(ev.pointerId);if(pointers.size<2)pinch=null;if(drag&&drag.idx>=0&&drag.moved){status('Öğe taşındı.')}drag=null});
-function setMode(m){mode=m;['select','line','move'].forEach(id=>$(id).classList.toggle('active',id===m));lineStart=null;status(m==='line'?'Çizgi: başlangıç ve bitiş noktalarına dokunun.':m==='move'?'Taşımak istediğiniz öğeyi seçip sürükleyin.':'Seçim modu.')}
+canvas.addEventListener('pointerup',ev=>{pointers.delete(ev.pointerId);if(pointers.size<2)pinch=null;if(!gesture&&drag&&drag.tap&&Math.hypot(pointerPos(ev).x-drag.p0.x,pointerPos(ev).y-drag.p0.y)<12)tap(pointerPos(ev));if(!pointers.size)gesture=false;if(drag&&drag.idx>=0&&drag.moved){status('Öğe taşındı.')}drag=null});
+function setMode(m){mode=m;['select','line','move','pan','trim','extend','measure','dim','rect','circle','multi','arc','poly','short','copy','dimx','dimy','angle','diam','rad'].forEach(id=>$(id).classList.toggle('active',id===m));lineStart=null;pending=[];boundary=-1;status(m==='line'?'Çizgi: başlangıç ve bitiş noktalarına dokunun.':m==='move'?'Taşımak istediğiniz öğeyi seçip sürükleyin.':m==='trim'||m==='extend'?'Önce sınır çizgisini seçin.':m==='pan'?'Ekranı sürükleyin.':m==='select'?'Seçim modu.':'İlk noktaya dokunun.')}
 $('select').onclick=()=>setMode('select');$('line').onclick=()=>setMode('line');$('move').onclick=()=>setMode('move');
-$('del').onclick=()=>{if(selected<0)return;saveHist();entities[selected].deleted=true;selected=-1;draw();status('Seçili öğe silindi.')};
-$('undo').onclick=()=>{if(!history.length)return;future.push(clone(entities));entities=history.pop();selected=-1;draw();status('Geri alındı.')};
-$('redo').onclick=()=>{if(!future.length)return;history.push(clone(entities));entities=future.pop();selected=-1;draw();status('Yine uygulandı.')};
+for(let m of ['pan','trim','extend','measure','dim','rect','circle'])$(m).onclick=()=>setMode(m);
+function newDrawing(){parse('0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n');fileName='yeni.dxf';setMode('line');status('Yeni DXF • mm');}
+$('new').onclick=()=>{if(!dirty||confirm('Kaydedilmemiş değişiklikler silinsin mi?'))newDrawing()};
+$('exact').onclick=()=>{let v=prompt('Başlangıç X,Y ve bitiş X,Y (mm)','0,0,100,0');if(v===null)return;let a=v.split(',').map(Number);if(a.length!==4||!a.every(Number.isFinite))return status('Dört sayı girin.');saveHist();addLine({x:a[0],y:a[1]},{x:a[2],y:a[3]});fit()};
+canvas.addEventListener('pointercancel',()=>{pointers.clear();pinch=null;drag=null;gesture=false});
+$('del').onclick=()=>{let ids=multi.size?[...multi]:[selected];if(ids[0]<0)return;saveHist();ids.forEach(i=>{if(entities[i])entities[i].deleted=true});multi.clear();selected=-1;draw();status('Seçili öğe silindi.')};
+$('undo').onclick=()=>{if(!history.length)return;future.push(clone(entities));entities=history.pop();multi.clear();selected=-1;draw();status('Geri alındı.')};
+$('redo').onclick=()=>{if(!future.length)return;history.push(clone(entities));entities=future.pop();multi.clear();selected=-1;draw();status('Yine uygulandı.')};
 $('fit').onclick=fit;$('zoomin').onclick=()=>zoomAt(W/2,H/2,1.35);$('zoomout').onclick=()=>zoomAt(W/2,H/2,1/1.35);
 function zoomAt(x,y,f){let q=world(x,y);scale*=f;ox=x-q.x*scale;oy=y+q.y*scale;draw()}
-$('file').onchange=async ev=>{let f=ev.target.files[0];if(!f)return;fileName=f.name;try{parse(await f.text())}catch(e){status('Dosya okunamadı: '+e.message)}};
+$('file').onchange=async ev=>{let f=ev.target.files[0];if(!f)return;if(dirty&&!confirm('Kaydedilmemiş değişiklikler silinsin mi?')){ev.target.value='';return}fileName=f.name;try{parse(await f.text())}catch(e){status('Dosya okunamadı: '+e.message)}ev.target.value=''};
 function setGroup(groups,c,v){let q=groups.find(g=>g.c===c);if(q)q.v=String(v)}
 function serialize(){
  let out=[],inEnt=false,entityWritten=false,rec=[];
@@ -117,10 +123,10 @@ function serialize(){
    for(let e of entities){
      if(e.deleted)continue;
      let g=clone(e.groups||[]);
-     if(e.added){g=[{c:0,v:'LINE'},{c:8,v:e.layer||'0'},{c:10,v:e.pts[0].x},{c:20,v:e.pts[0].y},{c:30,v:0},{c:11,v:e.pts[1].x},{c:21,v:e.pts[1].y},{c:31,v:0}];}
+     if(e.added&&e.type==='ARC'){g=[{c:0,v:'ARC'},{c:8,v:e.layer||'0'},{c:10,v:e.center.x},{c:20,v:e.center.y},{c:30,v:0},{c:40,v:e.r},{c:50,v:e.start},{c:51,v:e.end}]}else if(e.added&&e.type==='LWPOLYLINE'){g=[{c:0,v:'LWPOLYLINE'},{c:8,v:e.layer||'0'},{c:90,v:e.vertices.length},{c:70,v:e.closed?1:0},...e.vertices.flatMap(v=>[{c:10,v:v.x},{c:20,v:v.y},{c:42,v:v.bulge||0}])]}else if(e.added&&e.type==='CIRCLE'){g=[{c:0,v:'CIRCLE'},{c:8,v:e.layer},{c:10,v:e.center.x},{c:20,v:e.center.y},{c:30,v:0},{c:40,v:e.r}]}else if(e.added&&e.type==='TEXT'){g=[{c:0,v:'TEXT'},{c:8,v:e.layer},{c:10,v:e.center.x},{c:20,v:e.center.y},{c:30,v:0},{c:40,v:e.height},{c:1,v:e.text}]}else if(e.added){g=[{c:0,v:'LINE'},{c:8,v:e.layer||'0'},{c:10,v:e.pts[0].x},{c:20,v:e.pts[0].y},{c:30,v:0},{c:11,v:e.pts[1].x},{c:21,v:e.pts[1].y},{c:31,v:0}];}
      else if(e.type==='LINE'&&e.pts){
        [[10,e.pts[0].x],[20,e.pts[0].y],[11,e.pts[1].x],[21,e.pts[1].y]].forEach(([c,v])=>{let q=g.find(x=>x.c===c);if(q)q.v=String(v)});
-     } else if(['CIRCLE','ARC','POINT'].includes(e.type)&&e.center){
+     } else if(['CIRCLE','ARC','POINT','TEXT'].includes(e.type)&&e.center){
        [[10,e.center.x],[20,e.center.y]].forEach(([c,v])=>{let q=g.find(x=>x.c===c);if(q)q.v=String(v)});
      } else if(e.type==='LWPOLYLINE'&&e.vertices){
        let vi=0;
@@ -144,11 +150,38 @@ function serialize(){
    else out.push(q);
  }
  emitRec();
- return out.map(g=>String(g.c).padStart(3,' ')+'\\r\\n'+g.v+'\\r\\n').join('');
+ return out.map(g=>String(g.c).padStart(3,' ')+'\r\n'+g.v+'\r\n').join('');
 }
-$('save').onclick=()=>{let text=serialize(),blob=new Blob([text],{type:'application/dxf'}),a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=fileName.replace(/\.dxf$/i,'')+'_duzenlendi.dxf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('DXF dışa aktarıldı. Üretime göndermeden önce CAD programında kontrol edin.')};
+function download(name){let text=serialize(),blob=new Blob([text],{type:'application/dxf'}),a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('DXF dışa aktarıldı. Üretime göndermeden önce CAD programında kontrol edin.');dirty=false;}
+$('save').onclick=()=>download(fileName);$('saveas').onclick=()=>{let n=prompt('DXF dosya adı',fileName);if(n&&n.trim()){fileName=n.trim().replace(/\.dxf$/i,'')+'.dxf';download(fileName)}};
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(pointerPos(e).x,pointerPos(e).y,e.deltaY<0?1.12:1/1.12)},{passive:false});
+
+function orth(a,b){return Math.abs(b.x-a.x)>=Math.abs(b.y-a.y)?{x:b.x,y:a.y}:{x:a.x,y:b.y}}
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y), mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+function textAt(p,t){entities.push({type:'TEXT',center:p,height:Math.max(0.01,13/scale),text:t,layer:'DIM',added:true})}
+function dimLine(a,b,t){addLine(a,b,'DIM');let d=dist(a,b);if(d){let u={x:(b.x-a.x)/d,y:(b.y-a.y)/d},h=Math.min(d/4,8/scale);for(let [p,k] of [[a,1],[b,-1]])for(let side of [-1,1])addLine(p,{x:p.x+k*u.x*h-side*u.y*h*.4,y:p.y+k*u.y*h+side*u.x*h*.4},'DIM')}textAt(mid(a,b),t)}
+function extraTap(q,i){
+ if(mode==='multi'){if(i>=0){if(multi.has(i))multi.delete(i);else multi.add(i);selected=-1;status(multi.size+' öğe seçildi');draw()}return true}
+ if(mode==='short'){if(i<0||entities[i].type!=='LINE'){status('Kısaltılacak çizginin ucunu seçin.');return true}let e=entities[i],a=e.pts[0],b=e.pts[1],d=dist(a,b),v=prompt('Uçtan çıkarılacak uzunluk (mm)','10');if(v===null)return true;let n=Number(v.replace(',','.'));if(!(n>0&&n<d)){status('Geçersiz uzunluk');return true}let k=dist(q,a)<dist(q,b)?0:1,p=e.pts[k],r=e.pts[1-k];saveHist();e.pts[k]={x:p.x+(r.x-p.x)*n/d,y:p.y+(r.y-p.y)*n/d};draw();return true}
+ if(mode==='copy'){if(!pending.length){let ids=multi.size?[...multi]:i>=0?[i]:selected>=0?[selected]:[];ids=ids.filter(j=>entities[j]&&!entities[j].deleted&&!entities[j].unsupported);if(!ids.length){status('Kopyalanacak öğeyi seçin');return true}pending=[q,ids];status('Kopyanın hedef noktasına dokunun');return true}let [a,ids]=pending,dx=q.x-a.x,dy=q.y-a.y;saveHist();for(let j of ids){let e=clone(entities[j]),tr=p=>({...p,x:p.x+dx,y:p.y+dy});if(e.pts)e.pts=e.pts.map(tr);if(e.center)e.center=tr(e.center);if(e.vertices)e.vertices=e.vertices.map(tr);if(e.type==='POINT'){e.groups=e.groups.filter(g=>![5,330,360].includes(g.c))}else e.added=true;entities.push(e)}pending=[];draw();return true}
+ if(['diam','rad'].includes(mode)){let e=entities[i];if(!e||!['CIRCLE','ARC'].includes(e.type)){status('Daire veya yay seçin');return true}let a=Math.atan2(q.y-e.center.y,q.x-e.center.x),p={x:e.center.x+e.r*Math.cos(a),y:e.center.y+e.r*Math.sin(a)},b=mode==='diam'?{x:2*e.center.x-p.x,y:2*e.center.y-p.y}:e.center;saveHist();dimLine(b,p,(mode==='diam'?'D ':'R ')+(mode==='diam'?2*e.r:e.r).toFixed(2)+' mm');draw();return true}
+ if(!['arc','poly','angle','dimx','dimy'].includes(mode))return false;
+ if(mode==='poly'){if(orthoOn&&pending.length)q=orth(pending.at(-1),q);pending.push(q);lineStart=q;status('Sonraki köşe veya Bitir');draw();return true}
+ pending.push(q);lineStart=q;let need=['arc','angle'].includes(mode)?3:2;if(pending.length<need){status(mode==='arc'?(pending.length===1?'Yay üzerinde ikinci nokta':'Yayın bitiş noktası'):mode==='angle'?(pending.length===1?'Açının köşesi':'İkinci kolun noktası'):'İkinci noktaya dokunun');draw();return true}
+ let [a,b,c]=pending;pending=[];lineStart=null;
+ if(mode==='arc'){let d=2*(a.x*(b.y-c.y)+b.x*(c.y-a.y)+c.x*(a.y-b.y));if(Math.abs(d)<1e-10){status('Üç nokta aynı doğru üzerinde');return true}let A=a.x*a.x+a.y*a.y,B=b.x*b.x+b.y*b.y,C=c.x*c.x+c.y*c.y,o={x:(A*(b.y-c.y)+B*(c.y-a.y)+C*(a.y-b.y))/d,y:(A*(c.x-b.x)+B*(a.x-c.x)+C*(b.x-a.x))/d},ang=p=>(Math.atan2(p.y-o.y,p.x-o.x)*180/Math.PI+360)%360;let start=ang(a),end=ang(c);if((ang(b)-start+360)%360>(end-start+360)%360)[start,end]=[end,start];saveHist();entities.push({type:'ARC',center:o,r:dist(o,a),start,end,layer:'0',added:true})}
+ else if(mode==='angle'){if(!dist(a,b)||!dist(c,b))return true;let x=Math.atan2(a.y-b.y,a.x-b.x),y=Math.atan2(c.y-b.y,c.x-b.x),delta=Math.atan2(Math.sin(y-x),Math.cos(y-x)),r=Math.min(dist(a,b),dist(c,b))*.6;saveHist();let start=(x*180/Math.PI+360)%360,end=(y*180/Math.PI+360)%360;if(delta<0)[start,end]=[end,start];entities.push({type:'ARC',center:b,r,start,end,layer:'DIM',added:true});textAt({x:b.x+r*Math.cos(x+delta/2),y:b.y+r*Math.sin(x+delta/2)},(Math.abs(delta)*180/Math.PI).toFixed(2)+' deg')}
+ else {let h=25/scale,u=mode==='dimx'?{x:a.x,y:Math.max(a.y,b.y)+h}:{x:Math.max(a.x,b.x)+h,y:a.y},v=mode==='dimx'?{x:b.x,y:u.y}:{x:u.x,y:b.y};saveHist();addLine(a,u,'DIM');addLine(b,v,'DIM');dimLine(u,v,dist(u,v).toFixed(2)+' mm')}
+ status('İşlem tamamlandı');draw();return true;
+}
+for(let m of ['multi','arc','poly','short','copy','dimx','dimy','angle','diam','rad'])$(m).onclick=()=>setMode(m);
+$('finish').onclick=()=>{if(mode!=='poly'||pending.length<2)return status('En az iki köşe seçin');let closed=confirm('Polyline kapalı olsun mu?');saveHist();entities.push({type:'LWPOLYLINE',vertices:pending.map(p=>({...p,bulge:0})),closed,layer:'0',added:true});pending=[];lineStart=null;draw()};
+$('open').onclick=()=>$('file').click();$('clear').onclick=()=>{if(confirm('Tüm çizim temizlensin mi?')){saveHist();entities=[];multi.clear();selected=-1;setMode('select');draw()}};
+$('grid').onclick=()=>{gridOn=!gridOn;$('grid').classList.toggle('active',gridOn);draw()};$('snap').onclick=()=>{snapOn=!snapOn;$('snap').classList.toggle('active',snapOn)};$('ortho').onclick=()=>{orthoOn=!orthoOn;$('ortho').classList.toggle('active',orthoOn)};$('grid').classList.add('active');$('snap').classList.add('active');
+$('length').onclick=()=>{let t=prompt('Çizgi: başlangıç X; Y; uzunluk mm; açı derece','0;0;100;0');if(t===null)return;let a=t.split(';').map(x=>Number(x.trim().replace(',','.')));if(a.length!==4||!a.every(Number.isFinite)||a[2]<=0)return status('Geçersiz değer');let [x,y,l,deg]=a;saveHist();addLine({x,y},{x:x+l*Math.cos(deg*Math.PI/180),y:y+l*Math.sin(deg*Math.PI/180)});fit()};
+for(let b of document.querySelectorAll('[data-tab]'))b.onclick=()=>{for(let p of document.querySelectorAll('[data-panel]'))p.style.display=p.dataset.panel===b.dataset.tab?'flex':'none';for(let t of document.querySelectorAll('[data-tab]'))t.classList.toggle('active',t===b)};document.querySelector('[data-tab]').classList.add('active');
+
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
-resize();
+resize();newDrawing();
 })();
 </script></body></html>
