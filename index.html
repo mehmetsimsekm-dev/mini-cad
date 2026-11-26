@@ -2,68 +2,153 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#172033"><link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.webmanifest">
 <title>Mini CAD</title>
 <style>
-:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#edf1f6}
-*{box-sizing:border-box}body{margin:0;overflow:hidden}
-header{height:48px;background:#172033;color:white;display:flex;align-items:center;gap:8px;padding:0 10px;font-weight:650}
-header small{font-weight:400;opacity:.75}
-.toolbar{display:flex;gap:6px;padding:8px;background:#fff;overflow-x:auto;border-bottom:1px solid #ccd3df}
-button,.filebtn{border:1px solid #c7cfdb;background:#f7f9fc;border-radius:9px;padding:9px 11px;font-size:14px;white-space:nowrap;color:#172033}
-button.active{background:#dceaff;border-color:#4688df;color:#064e9b}
-#stage{position:absolute;top:106px;bottom:32px;left:0;right:0;background:#fff;touch-action:none}
-canvas{width:100%;height:100%;display:block}
-footer{position:absolute;bottom:0;height:32px;background:#172033;color:#fff;left:0;right:0;display:flex;align-items:center;padding:0 10px;font-size:12px;justify-content:space-between}
-input[type=file]{display:none}
-#notice{position:absolute;left:10px;bottom:42px;background:#172033;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:.92;pointer-events:none}
-#help{position:absolute;right:8px;bottom:42px;background:#f5f7faeF;border:1px solid #d7dce5;border-radius:8px;padding:7px 9px;font-size:11px;max-width:210px}
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#111827;color:#f9fafb;overflow:hidden}
+#app{height:100%;display:flex;flex-direction:column}.top{display:flex;gap:6px;align-items:center;padding:7px;background:#1f2937;overflow-x:auto;flex-shrink:0}
+button,.filebtn{border:1px solid #4b5563;background:#374151;color:white;border-radius:8px;padding:9px 11px;font-size:14px;white-space:nowrap}
+button.active{background:#2563eb;border-color:#60a5fa}button:disabled{opacity:.4}
+#status{font-size:12px;color:#cbd5e1;padding:5px 10px;background:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#stage{position:relative;flex:1;min-height:0;background:#0b1220;touch-action:none}canvas{width:100%;height:100%;display:block}
+#file{display:none}.bottom{padding:6px 9px;background:#1f2937;color:#9ca3af;font-size:11px;display:flex;justify-content:space-between}
 </style>
 </head>
-<body>
-<header>Mini CAD <small>iPad Edition · DXF ilk prototip</small></header>
-<div class="toolbar">
+<body><div id="app">
+<div class="top">
 <label class="filebtn" for="file">DXF Aç</label><input id="file" type="file" accept=".dxf">
-<button id="save">DXF Kaydet</button><button data-tool="select" class="active">Seç</button><button data-tool="pan">Pan</button><button data-tool="line">Çizgi</button><button id="del">Sil</button><button id="undo">↶ Geri</button><button id="redo">↷ Yinele</button><button id="fit">Sığdır</button><button id="zin">+</button><button id="zout">−</button>
+<button id="fit">Sığdır</button><button id="zoomout">−</button><button id="zoomin">+</button>
+<button id="select" class="active">Seç</button><button id="line">Çizgi</button><button id="move">Taşı</button>
+<button id="del">Sil</button><button id="undo">Geri</button><button id="redo">İleri</button>
+<button id="save">DXF Kaydet</button>
 </div>
+<div id="status">DXF dosyası açın. İki parmakla yakınlaştırıp kaydırabilirsiniz.</div>
 <div id="stage"><canvas id="c"></canvas></div>
-<div id="notice">DXF dosyası açarak başlayın.</div>
-<div id="help">Parmak: seç / sürükle · İki parmak: zoom ve pan<br>Apple Pencil: çizim ve seçim</div>
-<footer><span id="status">Hazır · Birim: DXF dosyasına bağlı</span><span id="count">0 nesne</span></footer>
+<div class="bottom"><span>Mini CAD v2 • DXF ASCII</span><span id="coords">X: —  Y: —</span></div>
+</div>
 <script>
-(()=>{
+(()=> {
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),stage=document.getElementById('stage');
-let ents=[],undo=[],redo=[],tool='select',view={s:1,x:0,y:0},selected=-1,drag=null,pointers=new Map(),lastPinch=null,lineStart=null,filename='minicad.dxf';
-const $=id=>document.getElementById(id),say=t=>$('notice').textContent=t;
-function snapshot(){undo.push(JSON.stringify(ents));if(undo.length>100)undo.shift();redo=[]}
-function restore(a){ents=JSON.parse(a);selected=-1;draw()}
-function resize(){let r=stage.getBoundingClientRect(),d=window.devicePixelRatio||1;canvas.width=r.width*d;canvas.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);draw()}
-function bounds(){let pts=[];ents.forEach(e=>{if(e.type==='LINE')pts.push(e.a,e.b);else if(e.type==='CIRCLE')pts.push({x:e.x-e.r,y:e.y-e.r},{x:e.x+e.r,y:e.y+e.r});else if(e.type==='ARC'||e.type==='POLYLINE')e.pts.forEach(p=>pts.push(p));});if(!pts.length)return {minX:-100,minY:-100,maxX:100,maxY:100};return {minX:Math.min(...pts.map(p=>p.x)),minY:Math.min(...pts.map(p=>p.y)),maxX:Math.max(...pts.map(p=>p.x)),maxY:Math.max(...pts.map(p=>p.y))}}
-function fit(){let b=bounds(),w=canvas.clientWidth,h=canvas.clientHeight,dx=b.maxX-b.minX||1,dy=b.maxY-b.minY||1;view.s=Math.min(w/dx,h/dy)*.86;view.x=(w-(b.minX+b.maxX)*view.s)/2;view.y=(h+(b.minY+b.maxY)*view.s)/2;draw()}
-function world(p){return {x:(p.x-view.x)/view.s,y:(view.y-p.y)/view.s}}
-function screen(p){return {x:view.x+p.x*view.s,y:view.y-p.y*view.s}}
-function pathPolyline(e){let pts=e.pts;if(!pts.length)return;ctx.beginPath();let a=screen(pts[0]);ctx.moveTo(a.x,a.y);for(let i=1;i<pts.length;i++){let b=screen(pts[i]);ctx.lineTo(b.x,b.y)}if(e.closed)ctx.closePath();ctx.stroke()}
-function draw(){let w=canvas.clientWidth,h=canvas.clientHeight;ctx.clearRect(0,0,w,h);ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.save();ctx.strokeStyle='#e9edf3';ctx.lineWidth=1;let step=50*view.s;if(step>18&&step<160){for(let x=((view.x%step)+step)%step;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}for(let y=((view.y%step)+step)%step;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}}
-ents.forEach((e,i)=>{ctx.strokeStyle=i===selected?'#e23b32':'#172033';ctx.lineWidth=i===selected?2.8:1.35;if(e.type==='LINE'){let a=screen(e.a),b=screen(e.b);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}else if(e.type==='CIRCLE'){let p=screen({x:e.x,y:e.y});ctx.beginPath();ctx.arc(p.x,p.y,e.r*view.s,0,Math.PI*2);ctx.stroke()}else if(e.type==='POLYLINE'){pathPolyline(e)}else if(e.type==='ARC'){let p=screen({x:e.x,y:e.y});ctx.beginPath();ctx.arc(p.x,p.y,e.r*view.s,-e.a2*Math.PI/180,-e.a1*Math.PI/180,true);ctx.stroke()}});ctx.restore();$('count').textContent=ents.length+' nesne'}
-function parseDXF(txt){let a=txt.replace(/\r/g,'').split('\n'),pairs=[];for(let i=0;i+1<a.length;i+=2)pairs.push([a[i].trim(),a[i+1].trim()]);let out=[],inEnt=false;for(let i=0;i<pairs.length;i++){let [c,v]=pairs[i];if(c==='2'&&v==='ENTITIES'){inEnt=true;continue}if(inEnt&&c==='0'&&v==='ENDSEC')break;if(!inEnt||c!=='0')continue;let type=v,vals={};i++;while(i<pairs.length&&pairs[i][0]!=='0'){let [gc,gv]=pairs[i];(vals[gc]??=[]).push(gv);i++}i--;const n=(k,d=0)=>+(vals[k]?.[0]??d);if(type==='LINE')out.push({type,a:{x:n('10'),y:n('20')},b:{x:n('11'),y:n('21')}});else if(type==='CIRCLE')out.push({type,x:n('10'),y:n('20'),r:n('40')});else if(type==='ARC')out.push({type,x:n('10'),y:n('20'),r:n('40'),a1:n('50'),a2:n('51')});else if(type==='LWPOLYLINE'){let xs=vals['10']||[],ys=vals['20']||[],bs=vals['42']||[],pts=xs.map((x,j)=>({x:+x,y:+(ys[j]||0)}));if(pts.length)out.push({type:'POLYLINE',pts,closed:(n('70')&1)!==0,bulges:bs.map(Number)})}}
-return out}
-function exportDXF(){let s=['0','SECTION','2','ENTITIES'];ents.forEach(e=>{if(e.type==='LINE')s.push('0','LINE','10',e.a.x,'20',e.a.y,'30','0','11',e.b.x,'21',e.b.y,'31','0');else if(e.type==='CIRCLE')s.push('0','CIRCLE','10',e.x,'20',e.y,'30','0','40',e.r);else if(e.type==='POLYLINE'){s.push('0','LWPOLYLINE','90',e.pts.length,'70',e.closed?'1':'0');e.pts.forEach((p,i)=>s.push('10',p.x,'20',p.y,...(e.bulges?.[i]?[['42',e.bulges[i]]].flat():[])))}else if(e.type==='ARC')s.push('0','ARC','10',e.x,'20',e.y,'30','0','40',e.r,'50',e.a1,'51',e.a2)});s.push('0','ENDSEC','0','EOF');let blob=new Blob([s.join('\r\n')],{type:'application/dxf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename.replace(/\.dxf$/i,'')+'_duzenlendi.dxf';a.click();URL.revokeObjectURL(url)}
-$('file').onchange=async ev=>{let f=ev.target.files[0];if(!f)return;filename=f.name;try{let parsed=parseDXF(await f.text());ents=parsed;undo=[];redo=[];selected=-1;fit();say(parsed.length?f.name+' açıldı':'Dosyada desteklenen nesne bulunamadı.');$('status').textContent='Açıldı: '+f.name+' · Görüntülenen nesne: '+parsed.length}catch(e){say('DXF okunamadı: '+e.message)}};
-$('save').onclick=exportDXF;$('fit').onclick=fit;$('zin').onclick=()=>zoom(1.25);$('zout').onclick=()=>zoom(.8);
-function zoom(k,at={x:canvas.clientWidth/2,y:canvas.clientHeight/2}){let p=world(at);view.s*=k;view.x=at.x-p.x*view.s;view.y=at.y+p.y*view.s;draw()}
-document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{tool=b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b));say(tool==='pan'?'Pan modu: sürükleyerek kaydırın.':tool==='line'?'Çizgi modu: başlangıç ve bitiş noktasına dokunun.':'Seçim modu.')});
-function distSeg(p,a,b){let dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)}
-function hit(p){let best=-1,bd=14;ents.forEach((e,i)=>{let d=1e9;if(e.type==='LINE')d=distSeg(p,e.a,e.b)*view.s;else if(e.type==='CIRCLE')d=Math.abs(Math.hypot(p.x-e.x,p.y-e.y)-e.r)*view.s;else if(e.type==='POLYLINE')for(let j=0;j<e.pts.length-(e.closed?0:1);j++)d=Math.min(d,distSeg(p,e.pts[j],e.pts[(j+1)%e.pts.length])*view.s);if(d<bd){bd=d;best=i}});return best}
-function pos(ev){let r=canvas.getBoundingClientRect();return {x:ev.clientX-r.left,y:ev.clientY-r.top}}
-canvas.addEventListener('pointerdown',ev=>{canvas.setPointerCapture(ev.pointerId);let p=pos(ev);pointers.set(ev.pointerId,p);if(pointers.size===2){let q=[...pointers.values()];lastPinch={d:Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y),mid:{x:(q[0].x+q[1].x)/2,y:(q[0].y+q[1].y)/2}};drag=null;return}if(tool==='pan'||ev.button===1||ev.pointerType==='touch'&&ev.isPrimary&&ev.buttons===4){drag={kind:'pan',p,last:{...p}};return}if(tool==='line'){let wp=world(p);if(!lineStart){lineStart=wp;say('Çizginin bitiş noktasını seçin.')}else{snapshot();ents.push({type:'LINE',a:lineStart,b:wp});lineStart=null;draw();say('Çizgi eklendi.')}return}let wp=world(p),idx=hit(wp);selected=idx;if(idx>=0&&tool==='select'){drag={kind:'move',p,last:wp,changed:false};}else drag={kind:'pan',p,last:{...p}};draw()});
-canvas.addEventListener('pointermove',ev=>{if(!pointers.has(ev.pointerId))return;let p=pos(ev);pointers.set(ev.pointerId,p);if(pointers.size===2&&lastPinch){let q=[...pointers.values()],d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y),mid={x:(q[0].x+q[1].x)/2,y:(q[0].y+q[1].y)/2};zoom(d/lastPinch.d,lastPinch.mid);view.x+=mid.x-lastPinch.mid.x;view.y+=mid.y-lastPinch.mid.y;lastPinch={d,mid};draw();return}if(!drag)return;if(drag.kind==='pan'){view.x+=p.x-drag.last.x;view.y+=p.y-drag.last.y;drag.last=p;draw()}else if(drag.kind==='move'&&selected>=0){let wp=world(p),dx=wp.x-drag.last.x,dy=wp.y-drag.last.y;if(Math.abs(dx)+Math.abs(dy)>.001){if(!drag.changed){snapshot();drag.changed=true}let e=ents[selected];if(e.type==='LINE'){e.a.x+=dx;e.a.y+=dy;e.b.x+=dx;e.b.y+=dy}else if(e.type==='CIRCLE'||e.type==='ARC'){e.x+=dx;e.y+=dy}else e.pts.forEach(pt=>{pt.x+=dx;pt.y+=dy});drag.last=wp;draw()}}});
-function end(ev){pointers.delete(ev.pointerId);if(pointers.size<2)lastPinch=null;drag=null}canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
-$('del').onclick=()=>{if(selected>=0){snapshot();ents.splice(selected,1);selected=-1;draw();say('Nesne silindi. Geri almak için ⌘Z.')}};
-$('undo').onclick=()=>{if(!undo.length)return;redo.push(JSON.stringify(ents));restore(undo.pop());say('İşlem geri alındı.')};
-$('redo').onclick=()=>{if(!redo.length)return;undo.push(JSON.stringify(ents));restore(redo.pop());say('İşlem yinelendi.')};
-window.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?$('redo').click():$('undo').click()}else if(e.key==='f'||e.key==='0')fit();else if(e.key==='+'||e.key==='=')zoom(1.2);else if(e.key==='-')zoom(.8);else if(e.key==='Delete'||e.key==='Backspace')$('del').click()});
-new ResizeObserver(resize).observe(stage);resize();
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+const $=id=>document.getElementById(id); let W=1,H=1,scale=1,ox=0,oy=0;
+let entities=[],original=[],rawLines=[],fileName='drawing.dxf',mode='select',selected=-1,drag=null,lineStart=null;
+let history=[],future=[],pinch=null,dirty=false;
+const status=t=>$('status').textContent=t;
+function clone(x){return JSON.parse(JSON.stringify(x))}
+function pairsFrom(text){let a=text.replace(/\r/g,'').split('\n');if(a[a.length-1]==='')a.pop();let p=[];for(let i=0;i+1<a.length;i+=2){let code=Number(a[i].trim());if(Number.isFinite(code))p.push({c:code,v:a[i+1]});}return p}
+function parse(text){
+ const p=pairsFrom(text); rawLines=p; entities=[]; let inEnt=false,rec=[];
+ const flush=()=>{if(!rec.length)return;let type=String(rec[0].v).trim().toUpperCase();let e={type,groups:clone(rec),layer:(rec.find(x=>x.c===8)||{v:'0'}).v,deleted:false};
+ const vals=c=>rec.filter(x=>x.c===c).map(x=>Number(x.v));
+ if(type==='LINE'){e.pts=[{x:vals(10)[0],y:vals(20)[0]},{x:vals(11)[0],y:vals(21)[0]}];}
+ else if(type==='CIRCLE'||type==='ARC'){e.center={x:vals(10)[0],y:vals(20)[0]};e.r=vals(40)[0];if(type==='ARC'){e.start=vals(50)[0];e.end=vals(51)[0];}}
+ else if(type==='LWPOLYLINE'){e.vertices=[];for(let i=0;i<rec.length;i++){if(rec[i].c===10){let y=rec.slice(i+1).find(x=>x.c===20);let b=rec.slice(i+1).find(x=>x.c===42);e.vertices.push({x:Number(rec[i].v),y:y?Number(y.v):0,bulge:b?Number(b.v):0});}}e.closed=(Number((rec.find(x=>x.c===70)||{v:0}).v)&1)!==0;}
+ else if(type==='POINT'){e.center={x:vals(10)[0],y:vals(20)[0]};}
+ else e.unsupported=true;
+ if(['LINE','CIRCLE','ARC','LWPOLYLINE','POINT'].includes(type))e.valid=true;
+ entities.push(e);rec=[];
+ };
+ for(const q of p){
+ if(q.c===0 && String(q.v).trim().toUpperCase()==='ENDSEC'){
+   if(inEnt){flush();inEnt=false;}
+   continue;
+ }
+ if(q.c===0){
+   if(inEnt)flush();
+   if(inEnt)rec=[q]; else rec=[];
+   continue;
+ }
+ if(q.c===2&&String(q.v).trim().toUpperCase()==='ENTITIES')inEnt=true;
+ if(inEnt)rec.push(q);
+ }
+ flush(); original=clone(entities); selected=-1;history=[];future=[];dirty=false;fit();
+ status(`${fileName} • ${entities.length} öğe • Desteklenen: LINE, CIRCLE, ARC, LWPOLYLINE, POINT. Diğer öğeler korunur.`);
+}
+function resize(){let r=stage.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);draw()}
+new ResizeObserver(resize).observe(stage);
+function world(x,y){return {x:(x-ox)/scale,y:(oy-y)/scale}}
+function screen(p){return {x:ox+p.x*scale,y:oy-p.y*scale}}
+function fit(){let pts=[];for(let e of entities){if(e.deleted)continue;if(e.pts)pts.push(...e.pts);if(e.center){let r=e.r||0;pts.push({x:e.center.x-r,y:e.center.y-r},{x:e.center.x+r,y:e.center.y+r})}if(e.vertices)pts.push(...e.vertices)}
+if(!pts.length){scale=1;ox=W/2;oy=H/2;draw();return}
+let minx=Math.min(...pts.map(p=>p.x)),maxx=Math.max(...pts.map(p=>p.x)),miny=Math.min(...pts.map(p=>p.y)),maxy=Math.max(...pts.map(p=>p.y));let dx=maxx-minx||1,dy=maxy-miny||1;scale=Math.min((W-60)/dx,(H-60)/dy);scale=Math.max(.00001,Math.min(scale,10000));ox=W/2-(minx+maxx)/2*scale;oy=H/2+(miny+maxy)/2*scale;draw()}
+function bulgePoints(a,b,bulge){if(!bulge)return [a,b];let theta=4*Math.atan(bulge),dx=b.x-a.x,dy=b.y-a.y,ch=Math.hypot(dx,dy),r=ch/(2*Math.sin(Math.abs(theta)/2));let mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},h=ch/(2*Math.tan(theta/2));let nx=-dy/ch,ny=dx/ch,c={x:mid.x+nx*h,y:mid.y+ny*h};let start=Math.atan2(a.y-c.y,a.x-c.x),n=Math.max(8,Math.ceil(Math.abs(theta)*Math.max(r*scale,1)/7)),out=[];for(let i=0;i<=n;i++){let t=start+theta*i/n;out.push({x:c.x+r*Math.cos(t),y:c.y+r*Math.sin(t)})}return out}
+function arcPts(e){let a=e.start*Math.PI/180,b=e.end*Math.PI/180;while(b<a)b+=Math.PI*2;let n=Math.max(12,Math.ceil((b-a)*Math.max(e.r*scale,1)/6));let p=[];for(let i=0;i<=n;i++){let t=a+(b-a)*i/n;p.push({x:e.center.x+e.r*Math.cos(t),y:e.center.y+e.r*Math.sin(t)})}return p}
+function path(points,close=false){if(!points.length)return;let s=screen(points[0]);ctx.beginPath();ctx.moveTo(s.x,s.y);for(let i=1;i<points.length;i++){s=screen(points[i]);ctx.lineTo(s.x,s.y)}if(close)ctx.closePath();ctx.stroke()}
+function draw(){if(!ctx)return;ctx.clearRect(0,0,W,H);ctx.fillStyle='#0b1220';ctx.fillRect(0,0,W,H);
+ // grid
+ let step=gridStep();let left=world(0,H).x,right=world(W,0).x,bottom=world(0,H).y,top=world(0,0).y;
+ ctx.lineWidth=1;ctx.strokeStyle='#172338';ctx.beginPath();for(let x=Math.ceil(left/step)*step;x<right;x+=step){let s=screen({x,y:0});ctx.moveTo(s.x,0);ctx.lineTo(s.x,H)}for(let y=Math.ceil(bottom/step)*step;y<top;y+=step){let s=screen({x:0,y});ctx.moveTo(0,s.y);ctx.lineTo(W,s.y)}ctx.stroke();
+ entities.forEach((e,i)=>{if(e.deleted)return;ctx.strokeStyle=i===selected?'#f59e0b':'#d1d5db';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=i===selected?2.8:1.5;
+ if(e.type==='LINE')path(e.pts);else if(e.type==='CIRCLE'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,e.r*scale,0,Math.PI*2);ctx.stroke()}else if(e.type==='ARC')path(arcPts(e));else if(e.type==='LWPOLYLINE'){let pts=[];for(let j=0;j<e.vertices.length-(e.closed?0:1);j++){let a=e.vertices[j],b=e.vertices[(j+1)%e.vertices.length];let seg=bulgePoints(a,b,a.bulge);pts.push(...(j?seg.slice(1):seg))}path(pts,e.closed)}else if(e.type==='POINT'){let s=screen(e.center);ctx.beginPath();ctx.arc(s.x,s.y,3,0,Math.PI*2);ctx.fill()}
+ });
+ if(lineStart){let s=screen(lineStart);ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(s.x,s.y,5,0,Math.PI*2);ctx.fill()}
+}
+function gridStep(){let raw=80/scale,p=Math.pow(10,Math.floor(Math.log10(raw)));for(let m of [1,2,5,10])if(m*p>=raw)return m*p;return 10*p}
+function saveHist(){history.push(clone(entities));if(history.length>60)history.shift();future=[];dirty=true}
+function nearest(p){let best=-1,bd=12;entities.forEach((e,i)=>{if(e.deleted)return;let candidates=[];if(e.pts)candidates=e.pts;if(e.center)candidates=[e.center];if(e.vertices)candidates=e.vertices;for(let q of candidates){let s=screen(q),d=Math.hypot(s.x-p.x,s.y-p.y);if(d<bd){bd=d;best=i}}if(e.r){let s=screen(e.center),d=Math.abs(Math.hypot(s.x-p.x,s.y-p.y)-e.r*scale);if(d<bd){bd=d;best=i}}});return best}
+function pointerPos(ev){let r=canvas.getBoundingClientRect();return {x:ev.clientX-r.left,y:ev.clientY-r.top}}
+let pointers=new Map();
+canvas.addEventListener('pointerdown',ev=>{canvas.setPointerCapture(ev.pointerId);let p=pointerPos(ev);pointers.set(ev.pointerId,p);
+ if(pointers.size===2){let a=[...pointers.values()];pinch={dist:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),scale,mid:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2},world:world((a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2)};drag=null;return}
+ if(mode==='line'){let q=world(p.x,p.y);if(!lineStart){lineStart=q;status('Başlangıç noktası seçildi. Bitiş noktasına dokunun.')}else{saveHist();entities.push({type:'LINE',pts:[lineStart,q],layer:'0',valid:true,added:true,groups:[]});lineStart=null;status('Çizgi eklendi.')}draw();return}
+ if(mode==='select'||mode==='move'){let idx=nearest(p);selected=idx;if(idx>=0){drag={p0:p,world0:world(p.x,p.y),before:clone(entities[idx]),idx,moved:false}}draw();return}
+ drag={p0:p,ox,oy,pan:true};
+});
+canvas.addEventListener('pointermove',ev=>{let p=pointerPos(ev);if(pointers.has(ev.pointerId))pointers.set(ev.pointerId,p);$('coords').textContent=`X: ${world(p.x,p.y).x.toFixed(2)}  Y: ${world(p.x,p.y).y.toFixed(2)}`;
+ if(pinch&&pointers.size>=2){let a=[...pointers.values()],mid={x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2},dist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);scale=Math.max(.000001,Math.min(1e7,pinch.scale*dist/pinch.dist));ox=mid.x-pinch.world.x*scale;oy=mid.y+pinch.world.y*scale;draw();return}
+ if(!drag)return;
+ if(drag.pan){ox=drag.ox+(p.x-drag.p0.x);oy=drag.oy+(p.y-drag.p0.y);draw();return}
+ if(drag.idx>=0&&mode==='move'&&drag.moved){/* move preview already */}else if(drag.idx>=0&&mode==='move'){let dx=(p.x-drag.p0.x)/scale,dy=-(p.y-drag.p0.y)/scale;if(Math.hypot(dx,dy)>2/scale){if(!drag.moved)saveHist();drag.moved=true;let e=entities[drag.idx],b=drag.before;if(e.pts)e.pts=b.pts.map(q=>({x:q.x+dx,y:q.y+dy}));if(e.center)e.center={x:b.center.x+dx,y:b.center.y+dy};if(e.vertices)e.vertices=b.vertices.map(q=>({...q,x:q.x+dx,y:q.y+dy}));draw()}}
+});
+canvas.addEventListener('pointerup',ev=>{pointers.delete(ev.pointerId);if(pointers.size<2)pinch=null;if(drag&&drag.idx>=0&&drag.moved){status('Öğe taşındı.')}drag=null});
+function setMode(m){mode=m;['select','line','move'].forEach(id=>$(id).classList.toggle('active',id===m));lineStart=null;status(m==='line'?'Çizgi: başlangıç ve bitiş noktalarına dokunun.':m==='move'?'Taşımak istediğiniz öğeyi seçip sürükleyin.':'Seçim modu.')}
+$('select').onclick=()=>setMode('select');$('line').onclick=()=>setMode('line');$('move').onclick=()=>setMode('move');
+$('del').onclick=()=>{if(selected<0)return;saveHist();entities[selected].deleted=true;selected=-1;draw();status('Seçili öğe silindi.')};
+$('undo').onclick=()=>{if(!history.length)return;future.push(clone(entities));entities=history.pop();selected=-1;draw();status('Geri alındı.')};
+$('redo').onclick=()=>{if(!future.length)return;history.push(clone(entities));entities=future.pop();selected=-1;draw();status('Yine uygulandı.')};
+$('fit').onclick=fit;$('zoomin').onclick=()=>zoomAt(W/2,H/2,1.35);$('zoomout').onclick=()=>zoomAt(W/2,H/2,1/1.35);
+function zoomAt(x,y,f){let q=world(x,y);scale*=f;ox=x-q.x*scale;oy=y+q.y*scale;draw()}
+$('file').onchange=async ev=>{let f=ev.target.files[0];if(!f)return;fileName=f.name;try{parse(await f.text())}catch(e){status('Dosya okunamadı: '+e.message)}};
+function setGroup(groups,c,v){let q=groups.find(g=>g.c===c);if(q)q.v=String(v)}
+function serialize(){
+ let out=[],inEnt=false,entityWritten=false,rec=[];
+ const emitRec=()=>{if(rec.length){out.push(...rec);rec=[]}};
+ const emitEntities=()=>{
+   if(entityWritten)return;
+   for(let e of entities){
+     if(e.deleted)continue;
+     let g=clone(e.groups||[]);
+     if(e.added){g=[{c:0,v:'LINE'},{c:8,v:e.layer||'0'},{c:10,v:e.pts[0].x},{c:20,v:e.pts[0].y},{c:30,v:0},{c:11,v:e.pts[1].x},{c:21,v:e.pts[1].y},{c:31,v:0}];}
+     else if(e.type==='LINE'&&e.pts){
+       [[10,e.pts[0].x],[20,e.pts[0].y],[11,e.pts[1].x],[21,e.pts[1].y]].forEach(([c,v])=>{let q=g.find(x=>x.c===c);if(q)q.v=String(v)});
+     } else if(['CIRCLE','ARC','POINT'].includes(e.type)&&e.center){
+       [[10,e.center.x],[20,e.center.y]].forEach(([c,v])=>{let q=g.find(x=>x.c===c);if(q)q.v=String(v)});
+     } else if(e.type==='LWPOLYLINE'&&e.vertices){
+       let vi=0;
+       for(let j=0;j<g.length;j++)if(g[j].c===10&&e.vertices[vi]){
+         g[j].v=String(e.vertices[vi].x);
+         let y=g.slice(j+1).find(x=>x.c===20);if(y)y.v=String(e.vertices[vi].y);
+         vi++;
+       }
+     }
+     out.push(...g);
+   }
+   entityWritten=true;
+ };
+ for(let q of rawLines){
+   if(q.c===0&&String(q.v).trim().toUpperCase()==='SECTION'){emitRec();out.push(q);continue}
+   if(q.c===2&&String(q.v).trim().toUpperCase()==='ENTITIES'){emitRec();out.push(q);inEnt=true;continue}
+   if(inEnt&&q.c===0&&String(q.v).trim().toUpperCase()==='ENDSEC'){
+     emitRec();emitEntities();out.push(q);inEnt=false;continue;
+   }
+   if(inEnt){continue}
+   else out.push(q);
+ }
+ emitRec();
+ return out.map(g=>String(g.c).padStart(3,' ')+'\\r\\n'+g.v+'\\r\\n').join('');
+}
+$('save').onclick=()=>{let text=serialize(),blob=new Blob([text],{type:'application/dxf'}),a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=fileName.replace(/\.dxf$/i,'')+'_duzenlendi.dxf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('DXF dışa aktarıldı. Üretime göndermeden önce CAD programında kontrol edin.')};
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(pointerPos(e).x,pointerPos(e).y,e.deltaY<0?1.12:1/1.12)},{passive:false});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+resize();
 })();
-</script>
-</body></html>
+</script></body></html>
