@@ -1,0 +1,10 @@
+{
+  "name": "Mini CAD iPad",
+  "short_name": "Mini CAD",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#edf1f6",
+  "theme_color": "#172033",
+  "orientation": "landscape",
+  "icons": []
+}
