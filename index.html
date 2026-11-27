@@ -317,16 +317,19 @@ $('file').onchange=async ev=>{
  let text;
  if(/\.dwg$/i.test(f.name)){
  status('DWG motoru yükleniyor…');
- const {LibreDwg,Dwg_File_Type}=await import('./dwg-engine/dist/libredwg-web.js');
+ const {LibreDwg}=await import('./dwg-engine/dist/libredwg-web.js');
  const engine=await LibreDwg.create(new URL('./dwg-engine/wasm/',location.href).href);
  const bytes=await f.arrayBuffer();
- const data=engine.dwg_read_data(bytes,Dwg_File_Type.DWG);
- if(!data)throw Error('DWG okunamadı');
+ const signature=new TextDecoder().decode(bytes.slice(0,6));
+ if(!/^AC[0-9]{4}$/.test(signature))throw Error('DWG başlığı geçersiz: '+signature);
+ if(typeof engine.dwg_write_dxf!=='function')throw Error('DWG motorunda DXF dönüştürme işlevi yok');
+ status('DWG dönüştürülüyor… '+signature);
  let converted;
- try{converted=engine.dwg_write_dxf(data);}finally{engine.dwg_free(data);}
- if(!converted||!converted.length)throw Error('DWG dönüştürülemedi');
+ try{converted=await engine.dwg_write_dxf(bytes);}catch(err){throw Error('DWG dönüşüm motoru: '+(err.message||String(err))+' ['+signature+']');}
+ if(!converted||!(converted.length||converted.byteLength))throw Error('DWG motoru boş sonuç döndürdü ['+signature+', '+bytes.byteLength+' bayt]');
  text=typeof converted==='string'?converted:new TextDecoder().decode(converted);
- if(!/ENTITIES/i.test(text)||!/EOF\s*$/i.test(text))throw Error('Geçerli ASCII DXF alınamadı');
+ text=text.replace(/\0+$/,'').trimEnd();
+ if(!/ENTITIES/i.test(text)||!/EOF\s*$/i.test(text))throw Error('Geçerli ASCII DXF alınamadı; çıktı uzunluğu '+text.length);
  if(!confirm('DWG deneysel olarak DXF biçimine dönüştürülecek. Bloklar, ölçüler ve özel nesneler eksik görünebilir. Orijinal DWG değiştirilmeyecek. Devam edilsin mi?'))return;
  }else{text=await f.text();}
  fileName=f.name.replace(/\.dwg$/i,'.dxf'); parse(text);
