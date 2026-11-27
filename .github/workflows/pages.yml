@@ -1,0 +1,33 @@
+name: Mini CAD Pages
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          mkdir -p site/dwg-engine
+          cp index.html sw.js manifest.webmanifest site/
+          npm pack @mlightcad/libredwg-web@0.9.4
+          tar -xzf mlightcad-libredwg-web-0.9.4.tgz -C site/dwg-engine --strip-components=1
+          test -s site/dwg-engine/dist/libredwg-web.js
+          find site/dwg-engine/wasm -name '*.wasm' | grep .
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment
