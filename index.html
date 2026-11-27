@@ -18,7 +18,7 @@ header{display:flex;align-items:center;gap:12px;padding:8px;background:#202b3c;b
 canvas,#stage{touch-action:none;filter:none;backdrop-filter:none}#drawoptions{display:contents!important}#tangent{color:#f472b6} </style>
 </head>
 <body><div id="app">
-<div class="top" id="tabs"><button id="treeToggle" title="Çizim ağacı">☰</button><button data-tab="0">Dosya</button><button data-tab="1">Çizim</button><button data-tab="2">Düzenleme</button><button data-tab="3">Ölçülendirme</button><button data-tab="4">Görünüm</button><span id="docname"></span><button id="quickSave" title="Kaydet">▣</button></div><div class="top tools" data-panel="0" style="display:flex"><button id="new">Yeni DXF</button><button id="open">DXF Aç</button><button id="save">Kaydet</button><button id="saveas">Farklı kaydet</button><button id="clear">Temizle</button></div><div class="top tools" data-panel="1" style="display:none"><button id="drawmenu">Çizgi ▾</button><span id="drawoptions" style="display:none;gap:6px"><button id="line">Düz çizgi</button><button id="free">Serbest stil</button><button id="rect">Dikdörtgen</button><button id="circle">Daire</button><button id="arc">Yay</button><button id="poly">Polyline</button><button id="finish">Bitir</button></span><button id="exact">Koordinat</button><button id="length" hidden></button></div><div class="top tools" data-panel="2" style="display:none"><button id="select">Seç</button><button id="multi">Çoklu seç</button><button id="del">Sil</button><button id="trim">Kırp</button><button id="extend">Uzat</button><button id="stretch">Stretch</button><button id="short">Uzunluk değiştir</button><button id="move">Serbest taşı</button><button id="pointmove">Noktadan noktaya</button><button id="align">Yatay / Dikey</button><button id="rotate">Döndür</button><button id="copy">Kopyala</button></div><div class="top tools" data-panel="3" style="display:none"><button id="measure" hidden></button><button id="dim">Otomatik ölçü</button><button id="dimx" hidden></button><button id="dimy" hidden></button><button id="angle">Açı</button><button id="diam">Çap</button><button id="rad">Yarıçap</button></div><div class="top tools" data-panel="4" style="display:none"><button id="fit">Sığdır</button><button id="zoomout">−</button><button id="zoomin">+</button><button id="pan">Pan</button><button id="grid">Izgara</button><button id="snap">Snap</button><button id="ortho">Ortho</button></div><input id="file" type="file" accept=".dxf"><div id="status">DXF dosyası açın. İki parmakla yakınlaştırıp kaydırabilirsiniz.</div>
+<div class="top" id="tabs"><button id="treeToggle" title="Çizim ağacı">☰</button><button data-tab="0">Dosya</button><button data-tab="1">Çizim</button><button data-tab="2">Düzenleme</button><button data-tab="3">Ölçülendirme</button><button data-tab="4">Görünüm</button><span id="docname"></span><button id="quickSave" title="Kaydet">▣</button></div><div class="top tools" data-panel="0" style="display:flex"><button id="new">Yeni DXF</button><button id="open">DXF / DWG Aç</button><button id="save">Kaydet</button><button id="saveas">Farklı kaydet</button><button id="clear">Temizle</button></div><div class="top tools" data-panel="1" style="display:none"><button id="drawmenu">Çizgi ▾</button><span id="drawoptions" style="display:none;gap:6px"><button id="line">Düz çizgi</button><button id="free">Serbest stil</button><button id="rect">Dikdörtgen</button><button id="circle">Daire</button><button id="arc">Yay</button><button id="poly">Polyline</button><button id="finish">Bitir</button></span><button id="exact">Koordinat</button><button id="length" hidden></button></div><div class="top tools" data-panel="2" style="display:none"><button id="select">Seç</button><button id="multi">Çoklu seç</button><button id="del">Sil</button><button id="trim">Kırp</button><button id="extend">Uzat</button><button id="stretch">Stretch</button><button id="short">Uzunluk değiştir</button><button id="move">Serbest taşı</button><button id="pointmove">Noktadan noktaya</button><button id="align">Yatay / Dikey</button><button id="rotate">Döndür</button><button id="copy">Kopyala</button></div><div class="top tools" data-panel="3" style="display:none"><button id="measure" hidden></button><button id="dim">Otomatik ölçü</button><button id="dimx" hidden></button><button id="dimy" hidden></button><button id="angle">Açı</button><button id="diam">Çap</button><button id="rad">Yarıçap</button></div><div class="top tools" data-panel="4" style="display:none"><button id="fit">Sığdır</button><button id="zoomout">−</button><button id="zoomin">+</button><button id="pan">Pan</button><button id="grid">Izgara</button><button id="snap">Snap</button><button id="ortho">Ortho</button></div><input id="file" type="file" accept=".dxf,.dwg"><div id="status">DXF dosyası açın. İki parmakla yakınlaştırıp kaydırabilirsiniz.</div>
 <div id="workspace"><aside id="tree"><b>Çizim Ağacı</b><div id="treeitems"></div></aside><div id="stage"><canvas id="c"></canvas><div id="nav"><button data-go="zoomin">＋</button><button data-go="zoomout">−</button><button data-go="fit">⛶</button><button data-go="pan" title="Ekranı sürükle">✋</button><button id="undo" title="Geri al" aria-label="Geri al">↶</button><button id="redo" title="İleri al" aria-label="İleri al">↷</button></div></div></div>
 <div class="bottom"><span>Mehmet ŞİMŞEK</span><span id="coords">X: —  Y: —</span></div>
 </div>
@@ -307,6 +307,34 @@ function export67(version, items=entities){
 function save67(rename){let v=$('format67').value;let n=rename?prompt('DXF dosya adı',fileName):fileName;if(!n||!n.trim())return;n=n.trim().replace(/\.dxf$/i,'')+'.dxf';try{let data=export67(v),url=URL.createObjectURL(new Blob([data],{type:'application/dxf'})),a=document.createElement('a');a.href=url;a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);fileName=n;dirty=false;status('DXF kaydedildi: '+v)}catch(e){alert(e.message);status('Kayıt yapılamadı')}}
 let format67=document.createElement('select');format67.id='format67';format67.innerHTML='<option value="R2000">AutoCAD 2000 DXF</option><option value="R12">AutoCAD R12 DXF</option>';format67.style.cssText='background:#263449;color:white;border:1px solid #64748b;border-radius:5px;padding:6px';$('save').before(format67);$('save').onclick=()=>save67(false);$('saveas').onclick=()=>save67(true);
 
+// Experimental DWG import, local conversion (no drawing upload).
+let dwgBusy=false;
+$('file').onchange=async ev=>{
+ const f=ev.target.files[0]; ev.target.value=''; if(!f||dwgBusy)return;
+ if(dirty&&!confirm('Kaydedilmemiş değişiklikler silinsin mi?'))return;
+ dwgBusy=true; $('open').disabled=true;
+ try{
+ let text;
+ if(/\.dwg$/i.test(f.name)){
+ status('DWG motoru yükleniyor…');
+ const {LibreDwg}=await import('https://esm.sh/@mlightcad/libredwg-web@0.9.4?bundle');
+ const engine=await LibreDwg.create('https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.9.4/wasm/');
+ const bytes=await f.arrayBuffer();
+ const converted=engine.dwg_write_dxf(bytes);
+ if(!converted||!converted.length)throw Error('DWG dönüştürülemedi');
+ text=new TextDecoder().decode(converted);
+ if(!/ENTITIES/i.test(text)||!/EOF\s*$/i.test(text))throw Error('Geçerli ASCII DXF alınamadı');
+ if(!confirm('DWG deneysel olarak DXF biçimine dönüştürülecek. Bloklar, ölçüler ve özel nesneler eksik görünebilir. Orijinal DWG değiştirilmeyecek. Devam edilsin mi?'))return;
+ }else{text=await f.text();}
+ fileName=f.name.replace(/\.dwg$/i,'.dxf'); parse(text);
+ if(/\.dwg$/i.test(f.name)){
+ const unsupported=entities.filter(e=>e.unsupported).length;
+ status('DWG içe aktarıldı • '+entities.length+' öğe • '+unsupported+' desteklenmeyen • DXF kayıt');
+ if(unsupported)alert('Desteklenmeyen '+unsupported+' nesne var. Eksik görünüm olabilir; veri kaybını önlemek için mevcut DXF kayıt koruması geçerlidir.');
+ }
+ }catch(e){status('Dosya açılamadı: '+e.message);alert('Dosya açılamadı: '+e.message);}
+ finally{dwgBusy=false;$('open').disabled=false;}
+};
 resize();newDrawing();document.querySelector('[data-tab="1"]').click();
 })();
 </script></body></html>
